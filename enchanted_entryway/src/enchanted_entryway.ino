@@ -2,7 +2,7 @@
  * Project enchanted_entryway
  * Description: Capstone Project- 
  * Author: Carli Stringfellow
- * Date: 05-12-2021
+ * Date: 05-20-2021
  */
 
 
@@ -11,7 +11,6 @@
 #include "Adafruit_MQTT/Adafruit_MQTT_SPARK.h" 
 #include "Adafruit_MQTT/Adafruit_MQTT.h" 
 #include "Air_Quality_Sensor.h"
-// #include "Adafruit_BME280.h"
 #include "Adafruit_SSD1306.h"
 #include "Adafruit_GFX.h"
 #include "Math.h" 
@@ -63,10 +62,6 @@ int i;
 const int PIXEL_TYPE = WS2812B;
 Adafruit_NeoPixel pixel(PIXELCOUNT, PIXELPIN, PIXEL_TYPE);
 
-unsigned long last;
-unsigned long lastTime;
-bool waterValue;
-
 //Timestamp declarations
 String DateTime;
 String TimeOnly;
@@ -94,13 +89,17 @@ int soilMoisture;
 //Water pump declarations.
 const int WATERPIN = D3;
 int pumpTimer;
+unsigned long last;
+unsigned long lastTime;
+bool waterValue;
+
 
 void setup() {
   Serial.begin(9600);
   while (!Serial);
-  pixel.begin();
-  pixel.show();
-  pixel.setBrightness(255);
+  pixel.begin(); // Sets up neoPixels
+  pixel.show(); 
+  pixel.setBrightness(255); // Sets brightness to full bright
 
   pinMode(LASERONEPIN, INPUT); // Pin out for photoresistor 1
   pinMode(LASERTWOPIN, INPUT); // Pin out for photoresistor 2
@@ -109,27 +108,17 @@ void setup() {
   pinMode(A0, INPUT);    //air pin
 
 
-  
-
   //  SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
 
   display.display ();
   delay(300);
   display.clearDisplay(); 
-  display.setRotation(rot); 
+  display.setRotation(rot); // Sets rotation of OLED display
 
   // Sets the timezone to mountain daylight time
   Time.zone(-6);
   Particle.syncTime();
-
-  // Serial.printf("Connecting to Internet \n");
-  WiFi.connect();
-  while(WiFi.connecting()) {
-    Serial.printf(".");
-    delay(100);
-  }
-  // Serial.printf("\n Connected!!!!!! \n");
 
   // Setup MQTT subscription for onoff feed.
   mqtt.subscribe(& waterButtonFeed);
@@ -142,7 +131,6 @@ void setup() {
     }
 } 
 
-
 void loop () {
   laserState();
   MQTT_connect();
@@ -154,9 +142,7 @@ void loop () {
   carbonSensor();
   neoPixel();
   dataDisplay();
-  
 }
-
 
 bool laserRead(int pin) {
   int laserVal = analogRead(pin);
@@ -185,6 +171,7 @@ void laserState () {
         counter++;
         Serial.printf("LaserState 1++ is: %i\n", _laserState);
       }
+
       if (!laserOne && laserTwo) {
         _laserState = 4;
         counter--;
@@ -230,9 +217,9 @@ void airQualityCheck() {
   display.setTextColor(WHITE);        // Draw WHITE text
   display.setCursor(29,56);             // Start at bootom-left corner
 
-  Serial.print("Air Sensor value: ");
-  Serial.printf("%i\n", airSensor.getValue());
-  if((millis()-lastTimeAir > 5000)) {
+  Serial.printf("Air Sensor value: %i\n", airSensor.getValue()); // Prints AirQuality values!
+  
+  if((millis()-lastTimeAir > 20000)) {
     if (quality == AirQualitySensor::FORCE_SIGNAL) {
       Serial.printf("High pollution! Force signal active.\n");
       display.printf("High Pollution!");
@@ -279,20 +266,22 @@ void cloudData() {
       }
       last = millis();
   }
+
   // This is our 'wait for incoming subscription packets' busy subloop
-  // Adafruit_MQTT_Subscribe *subscription;
-  // while ((subscription = mqtt.readSubscription(1000))) {
-  //   if (subscription == &waterButtonFeed) {
-  //     waterValue = atoi((char *)waterButtonFeed.lastread);
-  //     Serial.printf("Water Value %i \n", waterValue);
-  //     if (waterValue == 1) {           //****MANUAL WATER PUMP****
-  //       digitalWrite(WATERPIN,HIGH);
-  //       Serial.printf("Pump is ON \n");
-  //       delay(3000);
-  //       digitalWrite(WATERPIN,LOW);
-  //     }
-  //   }
-  // }
+  Adafruit_MQTT_Subscribe *subscription;
+  while ((subscription = mqtt.readSubscription(1000))) {
+    if (subscription == &waterButtonFeed) {
+      waterValue = atoi((char *)waterButtonFeed.lastread);
+      Serial.printf("Water Value %i \n", waterValue);
+
+      if (waterValue == 1) {                           ////////****MANUAL WATER PUMP****////////
+        digitalWrite(WATERPIN,HIGH);
+        Serial.printf("Pump is ON \n");
+        delay(3000);
+        digitalWrite(WATERPIN,LOW);
+      }
+    }
+  }
 
   if((millis()-lastTime > 12000)) { // PUBLISHES TO CLOUD
     if(mqtt.Update()) {
@@ -324,14 +313,14 @@ void dataDisplay() {
   display.setTextColor(WHITE);        // Draw WHITE text
   display.setCursor(0,0);             // Start at top-left corner
 
-  display.printf("%s\n", currentTime);  // Displays current MDT
+  display.printf("%s\n", currentDateTime);  // Displays current time in MDT and date.
   display.printf("\n");    
   
   display.printf("People In Space: %i \n", counter); // Displays current amount of people in room.
   display.display();
 }
 
-float MGRead(int mg_pin) {
+float MGRead(int mg_pin) {    //// Reads C02 sensor pin's samples set in declarations for mg_pin
     int i;
     float v=0;
     for (i=0;i<READ_SAMPLE_TIMES;i++) {
@@ -367,21 +356,22 @@ void carbonSensor () {
     // Serial.printf( "SEN0159: %0.2fV \n",volts);
     percentage = MGGetPercentage(volts,CO2Curve);
     // Serial.print("CO2:");
-    if((millis()-pastTime > 12000)) {
-      if (percentage == -1) {
-          Serial.printf("CO2: <400 ppm \n" );
-      } else {
-          Serial.printf("CO2 %d ppm \n",percentage);
+      if((millis()-pastTime > 12000)) {
+        if (percentage == -1) {
+            Serial.printf("CO2: <400 ppm \n" );
+        } else {
+            Serial.printf("CO2 %d ppm \n",percentage);
+        }
+        if(mqtt.Update()) {
+          Mobile_CO2.publish(percentage);  
+        }
+        pastTime = millis();
       }
-      if(mqtt.Update()) {
-        Mobile_CO2.publish(percentage);  
-      }
-      pastTime = millis();
-    }
 }
 
- void neoPixel() {
-   int capacity = 5; ////// CHANGE CAPACITY HERE! //////
+ void neoPixel() {  //This function sets neoPixels to green then turns red when triggered by capacity.
+
+   int capacity = 5;             ////// CHANGE CAPACITY HERE! //////
     if(counter >= capacity) {
     //  pixel.clear();
       for(i=0; i<12; i++) {
@@ -398,7 +388,7 @@ void carbonSensor () {
     }
  }
 
-void MQTT_connect() {
+void MQTT_connect() {  // CONNECTS TO WIFI for Adafruit Dashboard
   int8_t ret;
  
   // Stop if already connected.
